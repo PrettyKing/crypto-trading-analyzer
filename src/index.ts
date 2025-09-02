@@ -1,21 +1,31 @@
-const express = require('express');
-const http = require('http');
-const socketIo = require('socket.io');
-const cron = require('node-cron');
-require('dotenv').config();
+import express, { Request, Response, NextFunction } from 'express';
+import http from 'http';
+import { Server as SocketIOServer, Socket } from 'socket.io';
+import cron from 'node-cron';
+import { config } from 'dotenv';
 
-const logger = require('./utils/logger');
-const { initDatabase } = require('./database/index');
-const ExchangeManager = require('./exchanges/ExchangeManager');
-const TechnicalIndicators = require('./indicators/TechnicalIndicators');
-const PriceMonitor = require('./monitors/PriceMonitor');
-const apiRoutes = require('./routes/api');
+config();
+
+import logger from './utils/logger';
+import { initDatabase } from './database';
+import { ExchangeManager } from './exchanges/ExchangeManager';
+import { TechnicalIndicators } from './indicators/TechnicalIndicators';
+import { PriceMonitor } from './monitors/PriceMonitor';
+import apiRoutes from './routes/api';
+import { SubscriptionData } from './types';
 
 class TradingAnalyzer {
+    private app: express.Application;
+    private server: http.Server;
+    private io: SocketIOServer;
+    private exchangeManager: ExchangeManager;
+    private technicalIndicators: TechnicalIndicators;
+    private priceMonitor: PriceMonitor;
+    
     constructor() {
         this.app = express();
         this.server = http.createServer(this.app);
-        this.io = socketIo(this.server, {
+        this.io = new SocketIOServer(this.server, {
             cors: {
                 origin: "*",
                 methods: ["GET", "POST"]
@@ -32,22 +42,21 @@ class TradingAnalyzer {
         this.setupCronJobs();
     }
     
-    setupMiddleware() {
+    private setupMiddleware(): void {
         this.app.use(express.json());
         this.app.use(express.static('public'));
         
-        // CORS
-        this.app.use((req, res, next) => {
+        this.app.use((_: Request, res: Response, next: NextFunction) => {
             res.header('Access-Control-Allow-Origin', '*');
             res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
             next();
         });
     }
     
-    setupRoutes() {
+    private setupRoutes(): void {
         this.app.use('/api', apiRoutes);
         
-        this.app.get('/', (req, res) => {
+        this.app.get('/', (_: Request, res: Response) => {
             res.json({
                 name: 'Crypto Trading Analyzer',
                 version: '1.0.0',
@@ -57,20 +66,20 @@ class TradingAnalyzer {
         });
     }
     
-    setupSocketHandlers() {
-        this.io.on('connection', (socket) => {
+    private setupSocketHandlers(): void {
+        this.io.on('connection', (socket: Socket) => {
             logger.info(`Client connected: ${socket.id}`);
             
-            socket.on('subscribe', (data) => {
+            socket.on('subscribe', (data: SubscriptionData) => {
                 const { symbols } = data;
                 logger.info(`Client ${socket.id} subscribed to: ${symbols.join(', ')}`);
-                socket.join('price_updates');
+                void socket.join('price_updates');
             });
             
-            socket.on('unsubscribe', (data) => {
+            socket.on('unsubscribe', (data: SubscriptionData) => {
                 const { symbols } = data;
                 logger.info(`Client ${socket.id} unsubscribed from: ${symbols.join(', ')}`);
-                socket.leave('price_updates');
+                void socket.leave('price_updates');
             });
             
             socket.on('disconnect', () => {
@@ -79,8 +88,7 @@ class TradingAnalyzer {
         });
     }
     
-    setupCronJobs() {
-        // 每分钟更新价格数据
+    private setupCronJobs(): void {
         cron.schedule('*/1 * * * *', async () => {
             try {
                 await this.priceMonitor.updatePrices();
@@ -89,7 +97,6 @@ class TradingAnalyzer {
             }
         });
         
-        // 每5分钟计算技术指标
         cron.schedule('*/5 * * * *', async () => {
             try {
                 await this.calculateIndicators();
@@ -99,7 +106,7 @@ class TradingAnalyzer {
         });
     }
     
-    async calculateIndicators() {
+    private async calculateIndicators(): Promise<void> {
         const symbols = ['BTC/USDT', 'ETH/USDT', 'BNB/USDT'];
         
         for (const symbol of symbols) {
@@ -108,7 +115,6 @@ class TradingAnalyzer {
                 if (ohlcv && ohlcv.length > 0) {
                     const indicators = await this.technicalIndicators.calculateAll(ohlcv);
                     
-                    // 广播技术指标更新
                     this.io.to('price_updates').emit('indicators_update', {
                         symbol,
                         indicators,
@@ -121,25 +127,21 @@ class TradingAnalyzer {
         }
     }
     
-    async start() {
+    public async start(): Promise<void> {
         try {
-            // 初始化数据库
             await initDatabase();
             logger.info('Database initialized');
             
-            // 初始化交易所连接
             await this.exchangeManager.initialize();
             logger.info('Exchange connections initialized');
             
-            // 启动价格监控
             await this.priceMonitor.start();
             logger.info('Price monitoring started');
             
-            // 启动服务器
-            const port = process.env.PORT || 3000;
+            const port = process.env.PORT ? parseInt(process.env.PORT) : 3000;
             this.server.listen(port, () => {
                 logger.info(`Trading Analyzer server is running on port ${port}`);
-                logger.info(`WebSocket server is ready for connections`);
+                logger.info('WebSocket server is ready for connections');
             });
             
         } catch (error) {
@@ -147,19 +149,39 @@ class TradingAnalyzer {
             process.exit(1);
         }
     }
+    
+    public async stop(): Promise<void> {
+        try {
+            await this.priceMonitor.stop();
+            this.server.close();
+            logger.info('Trading Analyzer stopped gracefully');
+        } catch (error) {
+            logger.error('Error during graceful shutdown:', error);
+        }
+    }
 }
 
-// 启动应用
 const analyzer = new TradingAnalyzer();
-analyzer.start();
 
-// 优雅关闭
+void analyzer.start();
+
 process.on('SIGINT', async () => {
-    logger.info('Shutting down gracefully...');
+    logger.info('Received SIGINT, shutting down gracefully...');
+    await analyzer.stop();
     process.exit(0);
 });
 
 process.on('SIGTERM', async () => {
-    logger.info('Shutting down gracefully...');
+    logger.info('Received SIGTERM, shutting down gracefully...');
+    await analyzer.stop();
     process.exit(0);
+});
+
+process.on('unhandledRejection', (reason: any, promise: Promise<any>) => {
+    logger.error('Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
+process.on('uncaughtException', (error: Error) => {
+    logger.error('Uncaught Exception:', error);
+    process.exit(1);
 });

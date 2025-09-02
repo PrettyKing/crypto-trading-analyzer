@@ -1,20 +1,28 @@
-const express = require('express');
-const router = express.Router();
-const ExchangeManager = require('../exchanges/ExchangeManager');
-const TechnicalIndicators = require('../indicators/TechnicalIndicators');
-const logger = require('../utils/logger');
+import express, { Request, Response, NextFunction } from 'express';
+import { ExchangeManager } from '../exchanges/ExchangeManager';
+import { TechnicalIndicators } from '../indicators/TechnicalIndicators';
+import logger from '../utils/logger';
+import {
+    ApiResponse,
+    ExchangeInfo,
+    OHLCVData,
+    TechnicalIndicators as ITechnicalIndicators,
+    TradingSignals,
+    TradeRecommendation,
+    ArbitrageOpportunity,
+    OHLCVArray
+} from '../types';
 
-// 创建全局实例
+const router = express.Router();
+
 const exchangeManager = new ExchangeManager();
 const technicalIndicators = new TechnicalIndicators();
 
-// 初始化交易所管理器
 exchangeManager.initialize().catch(error => {
     logger.error('Failed to initialize exchange manager in API routes:', error);
 });
 
-// 获取支持的交易所列表
-router.get('/exchanges', async (req, res) => {
+router.get('/exchanges', async (_req: Request, res: Response<ApiResponse<string[]>>) => {
     try {
         const exchanges = exchangeManager.getAvailableExchanges();
         res.json({
@@ -25,13 +33,12 @@ router.get('/exchanges', async (req, res) => {
         logger.error('Error getting exchanges:', error);
         res.status(500).json({
             success: false,
-            error: error.message
+            error: (error as Error).message
         });
     }
 });
 
-// 获取交易所详细信息
-router.get('/exchanges/:exchange', async (req, res) => {
+router.get('/exchanges/:exchange', async (req: Request, res: Response<ApiResponse<ExchangeInfo>>) => {
     try {
         const { exchange } = req.params;
         const info = await exchangeManager.getExchangeInfo(exchange);
@@ -43,16 +50,27 @@ router.get('/exchanges/:exchange', async (req, res) => {
         logger.error(`Error getting exchange info for ${req.params.exchange}:`, error);
         res.status(500).json({
             success: false,
-            error: error.message
+            error: (error as Error).message
         });
     }
 });
 
-// 获取实时价格
-router.get('/price/:symbol', async (req, res) => {
+interface PriceResponse {
+    symbol: string;
+    exchange: string;
+    price: number;
+    bid: number;
+    ask: number;
+    volume: number;
+    change: number;
+    percentage: number;
+    timestamp: number;
+}
+
+router.get('/price/:symbol', async (req: Request, res: Response<ApiResponse<PriceResponse>>) => {
     try {
         const { symbol } = req.params;
-        const { exchange = 'binance' } = req.query;
+        const { exchange = 'binance' } = req.query as { exchange?: string };
         
         const ticker = await exchangeManager.getTicker(exchange, symbol);
         res.json({
@@ -60,26 +78,31 @@ router.get('/price/:symbol', async (req, res) => {
             data: {
                 symbol,
                 exchange,
-                price: ticker.last,
-                bid: ticker.bid,
-                ask: ticker.ask,
-                volume: ticker.baseVolume,
-                change: ticker.change,
-                percentage: ticker.percentage,
-                timestamp: ticker.timestamp
+                price: ticker.last!,
+                bid: ticker.bid!,
+                ask: ticker.ask!,
+                volume: ticker.baseVolume!,
+                change: ticker.change!,
+                percentage: ticker.percentage!,
+                timestamp: ticker.timestamp!
             }
         });
     } catch (error) {
         logger.error(`Error getting price for ${req.params.symbol}:`, error);
         res.status(500).json({
             success: false,
-            error: error.message
+            error: (error as Error).message
         });
     }
 });
 
-// 获取多交易所价格对比
-router.get('/prices/:symbol', async (req, res) => {
+interface MultiExchangePriceResponse {
+    symbol: string;
+    prices: Record<string, any>;
+    timestamp: string;
+}
+
+router.get('/prices/:symbol', async (req: Request, res: Response<ApiResponse<MultiExchangePriceResponse>>) => {
     try {
         const { symbol } = req.params;
         const prices = await exchangeManager.getMultiExchangePrices(symbol);
@@ -96,20 +119,26 @@ router.get('/prices/:symbol', async (req, res) => {
         logger.error(`Error getting multi-exchange prices for ${req.params.symbol}:`, error);
         res.status(500).json({
             success: false,
-            error: error.message
+            error: (error as Error).message
         });
     }
 });
 
-// 获取K线数据
-router.get('/ohlcv/:symbol', async (req, res) => {
+interface OHLCVResponse {
+    symbol: string;
+    exchange: string;
+    timeframe: string;
+    ohlcv: OHLCVData[];
+}
+
+router.get('/ohlcv/:symbol', async (req: Request, res: Response<ApiResponse<OHLCVResponse>>) => {
     try {
         const { symbol } = req.params;
         const { 
             exchange = 'binance',
             timeframe = '1h',
-            limit = 100
-        } = req.query;
+            limit = '100'
+        } = req.query as { exchange?: string; timeframe?: string; limit?: string };
         
         const ohlcv = await exchangeManager.getOHLCV(exchange, symbol, timeframe, parseInt(limit));
         
@@ -133,16 +162,23 @@ router.get('/ohlcv/:symbol', async (req, res) => {
         logger.error(`Error getting OHLCV for ${req.params.symbol}:`, error);
         res.status(500).json({
             success: false,
-            error: error.message
+            error: (error as Error).message
         });
     }
 });
 
-// 获取订单簿
-router.get('/orderbook/:symbol', async (req, res) => {
+interface OrderBookResponse {
+    symbol: string;
+    exchange: string;
+    bids: [number, number][];
+    asks: [number, number][];
+    timestamp: number;
+}
+
+router.get('/orderbook/:symbol', async (req: Request, res: Response<ApiResponse<OrderBookResponse>>) => {
     try {
         const { symbol } = req.params;
-        const { exchange = 'binance', limit = 20 } = req.query;
+        const { exchange = 'binance', limit = '20' } = req.query as { exchange?: string; limit?: string };
         
         const orderBook = await exchangeManager.getOrderBook(exchange, symbol, parseInt(limit));
         
@@ -153,38 +189,45 @@ router.get('/orderbook/:symbol', async (req, res) => {
                 exchange,
                 bids: orderBook.bids,
                 asks: orderBook.asks,
-                timestamp: orderBook.timestamp
+                timestamp: orderBook.timestamp!
             }
         });
     } catch (error) {
         logger.error(`Error getting order book for ${req.params.symbol}:`, error);
         res.status(500).json({
             success: false,
-            error: error.message
+            error: (error as Error).message
         });
     }
 });
 
-// 获取技术指标
-router.get('/indicators/:symbol', async (req, res) => {
+interface IndicatorsResponse {
+    symbol: string;
+    exchange: string;
+    timeframe: string;
+    indicators: ITechnicalIndicators;
+}
+
+router.get('/indicators/:symbol', async (req: Request, res: Response<ApiResponse<IndicatorsResponse>>) => {
     try {
         const { symbol } = req.params;
         const {
             exchange = 'binance',
             timeframe = '1h',
-            limit = 100
-        } = req.query;
+            limit = '100'
+        } = req.query as { exchange?: string; timeframe?: string; limit?: string };
         
         const ohlcv = await exchangeManager.getOHLCV(exchange, symbol, timeframe, parseInt(limit));
         
         if (!ohlcv || ohlcv.length === 0) {
-            return res.status(404).json({
+            res.status(404).json({
                 success: false,
                 error: 'No OHLCV data available'
             });
+            return;
         }
         
-        const indicators = await technicalIndicators.calculateAll(ohlcv);
+        const calculatedIndicators = await technicalIndicators.calculateAll(ohlcv);
         
         res.json({
             success: true,
@@ -192,37 +235,45 @@ router.get('/indicators/:symbol', async (req, res) => {
                 symbol,
                 exchange,
                 timeframe,
-                indicators
+                indicators: calculatedIndicators
             }
         });
     } catch (error) {
         logger.error(`Error calculating indicators for ${req.params.symbol}:`, error);
         res.status(500).json({
             success: false,
-            error: error.message
+            error: (error as Error).message
         });
     }
 });
 
-// 获取交易信号
-router.get('/signals/:symbol', async (req, res) => {
+interface SignalsResponse {
+    symbol: string;
+    exchange: string;
+    timeframe: string;
+    signals: TradingSignals;
+    recommendations: TradeRecommendation;
+}
+
+router.get('/signals/:symbol', async (req: Request, res: Response<ApiResponse<SignalsResponse>>) => {
     try {
         const { symbol } = req.params;
         const {
             exchange = 'binance',
             timeframe = '1h'
-        } = req.query;
+        } = req.query as { exchange?: string; timeframe?: string };
         
         const ohlcv = await exchangeManager.getOHLCV(exchange, symbol, timeframe, 100);
         
         if (!ohlcv || ohlcv.length === 0) {
-            return res.status(404).json({
+            res.status(404).json({
                 success: false,
                 error: 'No OHLCV data available'
             });
+            return;
         }
         
-        const indicators = await technicalIndicators.calculateAll(ohlcv);
+        const calculatedIndicators = await technicalIndicators.calculateAll(ohlcv);
         
         res.json({
             success: true,
@@ -230,21 +281,26 @@ router.get('/signals/:symbol', async (req, res) => {
                 symbol,
                 exchange,
                 timeframe,
-                signals: indicators.signals,
-                recommendations: generateTradeRecommendations(indicators, ohlcv)
+                signals: calculatedIndicators.signals,
+                recommendations: generateTradeRecommendations(calculatedIndicators, ohlcv)
             }
         });
     } catch (error) {
         logger.error(`Error getting signals for ${req.params.symbol}:`, error);
         res.status(500).json({
             success: false,
-            error: error.message
+            error: (error as Error).message
         });
     }
 });
 
-// 获取套利机会
-router.get('/arbitrage/:symbol', async (req, res) => {
+interface ArbitrageResponse {
+    symbol: string;
+    opportunities: ArbitrageOpportunity[];
+    timestamp: string;
+}
+
+router.get('/arbitrage/:symbol', async (req: Request, res: Response<ApiResponse<ArbitrageResponse>>) => {
     try {
         const { symbol } = req.params;
         const opportunities = await exchangeManager.calculateArbitrageOpportunities(symbol);
@@ -261,16 +317,20 @@ router.get('/arbitrage/:symbol', async (req, res) => {
         logger.error(`Error calculating arbitrage for ${req.params.symbol}:`, error);
         res.status(500).json({
             success: false,
-            error: error.message
+            error: (error as Error).message
         });
     }
 });
 
-// 获取所有套利机会
-router.get('/arbitrage', async (req, res) => {
+interface AllArbitrageResponse {
+    opportunities: ArbitrageOpportunity[];
+    timestamp: string;
+}
+
+router.get('/arbitrage', async (_: Request, res: Response<ApiResponse<AllArbitrageResponse>>) => {
     try {
         const symbols = ['BTC/USDT', 'ETH/USDT', 'BNB/USDT', 'ADA/USDT'];
-        const allOpportunities = [];
+        const allOpportunities: ArbitrageOpportunity[] = [];
         
         const promises = symbols.map(async (symbol) => {
             try {
@@ -283,13 +343,12 @@ router.get('/arbitrage', async (req, res) => {
         
         await Promise.all(promises);
         
-        // 按收益率排序
         allOpportunities.sort((a, b) => parseFloat(b.percentage) - parseFloat(a.percentage));
         
         res.json({
             success: true,
             data: {
-                opportunities: allOpportunities.slice(0, 20), // 返回前20个最佳机会
+                opportunities: allOpportunities.slice(0, 20),
                 timestamp: new Date().toISOString()
             }
         });
@@ -297,13 +356,20 @@ router.get('/arbitrage', async (req, res) => {
         logger.error('Error getting all arbitrage opportunities:', error);
         res.status(500).json({
             success: false,
-            error: error.message
+            error: (error as Error).message
         });
     }
 });
 
-// 获取账户余额
-router.get('/balance/:exchange', async (req, res) => {
+interface BalanceResponse {
+    exchange: string;
+    balance: Record<string, number>;
+    free: Record<string, number>;
+    used: Record<string, number>;
+    timestamp: string;
+}
+
+router.get('/balance/:exchange', async (req: Request, res: Response<ApiResponse<BalanceResponse>>) => {
     try {
         const { exchange } = req.params;
         const balance = await exchangeManager.getBalance(exchange);
@@ -322,13 +388,21 @@ router.get('/balance/:exchange', async (req, res) => {
         logger.error(`Error getting balance for ${req.params.exchange}:`, error);
         res.status(500).json({
             success: false,
-            error: error.message
+            error: (error as Error).message
         });
     }
 });
 
-// 创建订单（演示用）
-router.post('/orders', async (req, res) => {
+interface CreateOrderRequest {
+    exchange: string;
+    symbol: string;
+    type: string;
+    side: string;
+    amount: string;
+    price?: string;
+}
+
+router.post('/orders', async (_: Request<{}, ApiResponse, CreateOrderRequest>, res: Response<ApiResponse>) => {
     try {
         const {
             exchange,
@@ -337,16 +411,16 @@ router.post('/orders', async (req, res) => {
             side,
             amount,
             price
-        } = req.body;
+        } = _.body;
         
         if (!exchange || !symbol || !type || !side || !amount) {
-            return res.status(400).json({
+            res.status(400).json({
                 success: false,
                 error: 'Missing required parameters'
             });
+            return;
         }
         
-        // 注意：这里只是演示，实际使用时需要更多安全检查
         const order = await exchangeManager.createOrder(
             exchange,
             symbol,
@@ -364,15 +438,14 @@ router.post('/orders', async (req, res) => {
         logger.error('Error creating order:', error);
         res.status(500).json({
             success: false,
-            error: error.message
+            error: (error as Error).message
         });
     }
 });
 
-// 生成交易建议
-function generateTradeRecommendations(indicators, ohlcv) {
+function generateTradeRecommendations(indicators: ITechnicalIndicators, ohlcv: OHLCVArray[]): TradeRecommendation {
     const currentPrice = ohlcv[ohlcv.length - 1][4];
-    const recommendations = {
+    const recommendations: TradeRecommendation = {
         action: 'HOLD',
         confidence: 0,
         entryPrice: currentPrice,
@@ -387,11 +460,10 @@ function generateTradeRecommendations(indicators, ohlcv) {
     if (signals.overall === 'BULLISH') {
         recommendations.action = 'BUY';
         recommendations.confidence = signals.strength;
-        recommendations.stopLoss = currentPrice * 0.95; // 5%止损
-        recommendations.takeProfit = currentPrice * 1.1; // 10%止盈
+        recommendations.stopLoss = currentPrice * 0.95;
+        recommendations.takeProfit = currentPrice * 1.1;
         recommendations.reasoning.push('多个技术指标显示看涨信号');
         
-        // 基于ATR设置更精确的止损
         if (indicators.atr && indicators.atr.length > 0) {
             const atr = indicators.atr[indicators.atr.length - 1];
             recommendations.stopLoss = currentPrice - (atr * 2);
@@ -403,7 +475,6 @@ function generateTradeRecommendations(indicators, ohlcv) {
         recommendations.reasoning.push('多个技术指标显示看跌信号');
     }
     
-    // 基于RSI调整建议
     if (indicators.rsi && indicators.rsi.length > 0) {
         const rsi = indicators.rsi[indicators.rsi.length - 1];
         if (rsi > 80) {
@@ -418,8 +489,7 @@ function generateTradeRecommendations(indicators, ohlcv) {
     return recommendations;
 }
 
-// 错误处理中间件
-router.use((error, req, res, next) => {
+router.use((error: Error, _req: Request, res: Response, _next: NextFunction) => {
     logger.error('API Error:', error);
     res.status(500).json({
         success: false,
@@ -427,4 +497,4 @@ router.use((error, req, res, next) => {
     });
 });
 
-module.exports = router;
+export default router;

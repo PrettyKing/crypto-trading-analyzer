@@ -1,15 +1,20 @@
-const ccxt = require('ccxt');
-const logger = require('../utils/logger');
+import ccxt from 'ccxt';
+import logger from '../utils/logger';
+import {
+    OHLCVArray,
+    ArbitrageOpportunity,
+    ExchangePriceData,
+    ExchangeInfo,
+    ExchangeError
+} from '../types';
 
-class ExchangeManager {
-    constructor() {
-        this.exchanges = {};
-        this.supportedExchanges = ['binance', 'okx', 'huobi'];
-    }
+export class ExchangeManager {
+    private exchanges: Record<string, any> = {};
+    // Supported exchanges list for reference
+    // private readonly supportedExchanges: string[] = ['binance', 'okx', 'huobi'];
     
-    async initialize() {
+    public async initialize(): Promise<void> {
         try {
-            // 初始化Binance
             if (process.env.BINANCE_API_KEY && process.env.BINANCE_SECRET) {
                 this.exchanges.binance = new ccxt.binance({
                     apiKey: process.env.BINANCE_API_KEY,
@@ -23,7 +28,6 @@ class ExchangeManager {
                 logger.info('Binance exchange initialized');
             }
             
-            // 初始化OKX
             if (process.env.OKX_API_KEY && process.env.OKX_SECRET && process.env.OKX_PASSPHRASE) {
                 this.exchanges.okx = new ccxt.okx({
                     apiKey: process.env.OKX_API_KEY,
@@ -35,7 +39,6 @@ class ExchangeManager {
                 logger.info('OKX exchange initialized');
             }
             
-            // 测试连接
             await this.testConnections();
             
         } catch (error) {
@@ -44,124 +47,183 @@ class ExchangeManager {
         }
     }
     
-    async testConnections() {
+    private async testConnections(): Promise<void> {
         for (const [name, exchange] of Object.entries(this.exchanges)) {
             try {
                 await exchange.loadMarkets();
                 logger.info(`${name} connection test successful`);
             } catch (error) {
-                logger.warn(`${name} connection test failed:`, error.message);
+                logger.warn(`${name} connection test failed:`, (error as Error).message);
             }
         }
     }
     
-    getExchange(exchangeName) {
+    public getExchange(exchangeName: string): any {
         const exchange = this.exchanges[exchangeName.toLowerCase()];
         if (!exchange) {
-            throw new Error(`Exchange ${exchangeName} not available`);
+            throw new ExchangeError(`Exchange ${exchangeName} not available`, exchangeName);
         }
         return exchange;
     }
     
-    async getTicker(exchangeName, symbol) {
+    public async getTicker(exchangeName: string, symbol: string): Promise<any> {
         try {
             const exchange = this.getExchange(exchangeName);
             return await exchange.fetchTicker(symbol);
         } catch (error) {
             logger.error(`Error fetching ticker for ${symbol} on ${exchangeName}:`, error);
-            throw error;
+            throw new ExchangeError(
+                `Error fetching ticker: ${(error as Error).message}`,
+                exchangeName,
+                symbol
+            );
         }
     }
     
-    async getOHLCV(exchangeName, symbol, timeframe = '1h', limit = 100) {
+    public async getOHLCV(
+        exchangeName: string, 
+        symbol: string, 
+        timeframe: string = '1h', 
+        limit: number = 100
+    ): Promise<OHLCVArray[]> {
         try {
             const exchange = this.getExchange(exchangeName);
-            return await exchange.fetchOHLCV(symbol, timeframe, undefined, limit);
+            return await exchange.fetchOHLCV(symbol, timeframe, undefined, limit) as OHLCVArray[];
         } catch (error) {
             logger.error(`Error fetching OHLCV for ${symbol} on ${exchangeName}:`, error);
-            throw error;
+            throw new ExchangeError(
+                `Error fetching OHLCV: ${(error as Error).message}`,
+                exchangeName,
+                symbol
+            );
         }
     }
     
-    async getOrderBook(exchangeName, symbol, limit = 20) {
+    public async getOrderBook(
+        exchangeName: string, 
+        symbol: string, 
+        limit: number = 20
+    ): Promise<any> {
         try {
             const exchange = this.getExchange(exchangeName);
             return await exchange.fetchOrderBook(symbol, limit);
         } catch (error) {
             logger.error(`Error fetching order book for ${symbol} on ${exchangeName}:`, error);
-            throw error;
+            throw new ExchangeError(
+                `Error fetching order book: ${(error as Error).message}`,
+                exchangeName,
+                symbol
+            );
         }
     }
     
-    async getTrades(exchangeName, symbol, limit = 50) {
+    public async getTrades(
+        exchangeName: string, 
+        symbol: string, 
+        limit: number = 50
+    ): Promise<any[]> {
         try {
             const exchange = this.getExchange(exchangeName);
             return await exchange.fetchTrades(symbol, undefined, limit);
         } catch (error) {
             logger.error(`Error fetching trades for ${symbol} on ${exchangeName}:`, error);
-            throw error;
+            throw new ExchangeError(
+                `Error fetching trades: ${(error as Error).message}`,
+                exchangeName,
+                symbol
+            );
         }
     }
     
-    async getBalance(exchangeName) {
+    public async getBalance(exchangeName: string): Promise<any> {
         try {
             const exchange = this.getExchange(exchangeName);
             return await exchange.fetchBalance();
         } catch (error) {
             logger.error(`Error fetching balance on ${exchangeName}:`, error);
-            throw error;
+            throw new ExchangeError(
+                `Error fetching balance: ${(error as Error).message}`,
+                exchangeName
+            );
         }
     }
     
-    async createOrder(exchangeName, symbol, type, side, amount, price = undefined, params = {}) {
+    public async createOrder(
+        exchangeName: string,
+        symbol: string,
+        type: string,
+        side: string,
+        amount: number,
+        price?: number,
+        params: any = {}
+    ): Promise<any> {
         try {
             const exchange = this.getExchange(exchangeName);
             return await exchange.createOrder(symbol, type, side, amount, price, params);
         } catch (error) {
             logger.error(`Error creating order on ${exchangeName}:`, error);
-            throw error;
+            throw new ExchangeError(
+                `Error creating order: ${(error as Error).message}`,
+                exchangeName,
+                symbol
+            );
         }
     }
     
-    async cancelOrder(exchangeName, orderId, symbol) {
+    public async cancelOrder(
+        exchangeName: string, 
+        orderId: string, 
+        symbol: string
+    ): Promise<any> {
         try {
             const exchange = this.getExchange(exchangeName);
             return await exchange.cancelOrder(orderId, symbol);
         } catch (error) {
             logger.error(`Error canceling order on ${exchangeName}:`, error);
-            throw error;
+            throw new ExchangeError(
+                `Error canceling order: ${(error as Error).message}`,
+                exchangeName,
+                symbol
+            );
         }
     }
     
-    async getOrder(exchangeName, orderId, symbol) {
+    public async getOrder(
+        exchangeName: string, 
+        orderId: string, 
+        symbol: string
+    ): Promise<any> {
         try {
             const exchange = this.getExchange(exchangeName);
             return await exchange.fetchOrder(orderId, symbol);
         } catch (error) {
             logger.error(`Error fetching order on ${exchangeName}:`, error);
-            throw error;
+            throw new ExchangeError(
+                `Error fetching order: ${(error as Error).message}`,
+                exchangeName,
+                symbol
+            );
         }
     }
     
-    // 获取多个交易所的价格进行对比
-    async getMultiExchangePrices(symbol) {
-        const prices = {};
-        const promises = [];
+    public async getMultiExchangePrices(symbol: string): Promise<Record<string, ExchangePriceData | null>> {
+        const prices: Record<string, ExchangePriceData | null> = {};
+        const promises: Promise<void>[] = [];
         
-        for (const [name, exchange] of Object.entries(this.exchanges)) {
+        for (const [name] of Object.entries(this.exchanges)) {
             promises.push(
                 this.getTicker(name, symbol)
                     .then(ticker => {
                         prices[name] = {
-                            price: ticker.last,
-                            bid: ticker.bid,
-                            ask: ticker.ask,
-                            volume: ticker.baseVolume,
-                            timestamp: ticker.timestamp
+                            price: ticker.last!,
+                            bid: ticker.bid!,
+                            ask: ticker.ask!,
+                            volume: ticker.baseVolume!,
+                            timestamp: ticker.timestamp!
                         };
                     })
                     .catch(error => {
-                        logger.warn(`Failed to get price from ${name}: ${error.message}`);
+                        logger.warn(`Failed to get price from ${name}: ${(error as Error).message}`);
                         prices[name] = null;
                     })
             );
@@ -171,12 +233,11 @@ class ExchangeManager {
         return prices;
     }
     
-    // 计算套利机会
-    async calculateArbitrageOpportunities(symbol) {
+    public async calculateArbitrageOpportunities(symbol: string): Promise<ArbitrageOpportunity[]> {
         const prices = await this.getMultiExchangePrices(symbol);
-        const opportunities = [];
+        const opportunities: ArbitrageOpportunity[] = [];
         
-        const validPrices = Object.entries(prices).filter(([_, data]) => data !== null);
+        const validPrices = Object.entries(prices).filter(([, data]) => data !== null) as [string, ExchangePriceData][];
         
         for (let i = 0; i < validPrices.length; i++) {
             for (let j = i + 1; j < validPrices.length; j++) {
@@ -187,7 +248,7 @@ class ExchangeManager {
                 const avgPrice = (data1.price + data2.price) / 2;
                 const percentage = (priceDiff / avgPrice) * 100;
                 
-                if (percentage > 0.1) { // 0.1%以上的价差
+                if (percentage > 0.1) {
                     opportunities.push({
                         symbol,
                         buyExchange: data1.price < data2.price ? exchange1 : exchange2,
@@ -202,14 +263,14 @@ class ExchangeManager {
             }
         }
         
-        return opportunities.sort((a, b) => b.percentage - a.percentage);
+        return opportunities.sort((a, b) => parseFloat(b.percentage) - parseFloat(a.percentage));
     }
     
-    getAvailableExchanges() {
+    public getAvailableExchanges(): string[] {
         return Object.keys(this.exchanges);
     }
     
-    async getExchangeInfo(exchangeName) {
+    public async getExchangeInfo(exchangeName: string): Promise<ExchangeInfo> {
         try {
             const exchange = this.getExchange(exchangeName);
             await exchange.loadMarkets();
@@ -224,9 +285,12 @@ class ExchangeManager {
             };
         } catch (error) {
             logger.error(`Error getting exchange info for ${exchangeName}:`, error);
-            throw error;
+            throw new ExchangeError(
+                `Error getting exchange info: ${(error as Error).message}`,
+                exchangeName
+            );
         }
     }
 }
 
-module.exports = ExchangeManager;
+export default ExchangeManager;

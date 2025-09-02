@@ -1,15 +1,18 @@
-const _ = require('lodash');
+// import _ from 'lodash'; // Unused
+import {
+    TechnicalIndicators as ITechnicalIndicators,
+    TradingSignals,
+    SupportResistanceLevel,
+    OHLCVArray,
+    IndicatorError
+} from '../types';
 
-class TechnicalIndicators {
-    constructor() {
-        this.indicators = {};
-    }
+export class TechnicalIndicators {
     
-    // 简单移动平均线 (SMA)
-    calculateSMA(data, period = 20) {
+    public calculateSMA(data: number[], period: number = 20): number[] {
         if (data.length < period) return [];
         
-        const sma = [];
+        const sma: number[] = [];
         for (let i = period - 1; i < data.length; i++) {
             const sum = data.slice(i - period + 1, i + 1).reduce((a, b) => a + b, 0);
             sma.push(sum / period);
@@ -17,12 +20,11 @@ class TechnicalIndicators {
         return sma;
     }
     
-    // 指数移动平均线 (EMA)
-    calculateEMA(data, period = 20) {
+    public calculateEMA(data: number[], period: number = 20): number[] {
         if (data.length < period) return [];
         
         const multiplier = 2 / (period + 1);
-        const ema = [data[0]];
+        const ema: number[] = [data[0]];
         
         for (let i = 1; i < data.length; i++) {
             ema.push((data[i] * multiplier) + (ema[i - 1] * (1 - multiplier)));
@@ -31,19 +33,18 @@ class TechnicalIndicators {
         return ema;
     }
     
-    // 相对强弱指标 (RSI)
-    calculateRSI(data, period = 14) {
+    public calculateRSI(data: number[], period: number = 14): number[] {
         if (data.length < period + 1) return [];
         
-        const changes = [];
+        const changes: number[] = [];
         for (let i = 1; i < data.length; i++) {
             changes.push(data[i] - data[i - 1]);
         }
         
-        const rsi = [];
-        let gains = 0, losses = 0;
+        const rsi: number[] = [];
+        let gains = 0;
+        let losses = 0;
         
-        // 计算初始平均收益和损失
         for (let i = 0; i < period; i++) {
             if (changes[i] > 0) {
                 gains += changes[i];
@@ -73,8 +74,12 @@ class TechnicalIndicators {
         return rsi;
     }
     
-    // MACD指标
-    calculateMACD(data, fastPeriod = 12, slowPeriod = 26, signalPeriod = 9) {
+    public calculateMACD(
+        data: number[], 
+        fastPeriod: number = 12, 
+        slowPeriod: number = 26, 
+        signalPeriod: number = 9
+    ): { macd: number[]; signal: number[]; histogram: number[] } {
         const fastEMA = this.calculateEMA(data, fastPeriod);
         const slowEMA = this.calculateEMA(data, slowPeriod);
         
@@ -82,13 +87,13 @@ class TechnicalIndicators {
             fastEMA.unshift(...Array(slowEMA.length - fastEMA.length).fill(fastEMA[0]));
         }
         
-        const macdLine = [];
+        const macdLine: number[] = [];
         for (let i = 0; i < Math.min(fastEMA.length, slowEMA.length); i++) {
             macdLine.push(fastEMA[i] - slowEMA[i]);
         }
         
         const signalLine = this.calculateEMA(macdLine, signalPeriod);
-        const histogram = [];
+        const histogram: number[] = [];
         
         for (let i = 0; i < Math.min(macdLine.length, signalLine.length); i++) {
             histogram.push(macdLine[i] - signalLine[i]);
@@ -101,13 +106,16 @@ class TechnicalIndicators {
         };
     }
     
-    // 布林带 (Bollinger Bands)
-    calculateBollingerBands(data, period = 20, multiplier = 2) {
+    public calculateBollingerBands(
+        data: number[], 
+        period: number = 20, 
+        multiplier: number = 2
+    ): { upper: number[]; middle: number[]; lower: number[] } {
         const sma = this.calculateSMA(data, period);
         const bands = {
-            upper: [],
+            upper: [] as number[],
             middle: sma,
-            lower: []
+            lower: [] as number[]
         };
         
         for (let i = period - 1; i < data.length; i++) {
@@ -123,11 +131,16 @@ class TechnicalIndicators {
         return bands;
     }
     
-    // 随机指标 (Stochastic)
-    calculateStochastic(high, low, close, kPeriod = 14, dPeriod = 3) {
+    public calculateStochastic(
+        high: number[], 
+        low: number[], 
+        close: number[], 
+        kPeriod: number = 14, 
+        dPeriod: number = 3
+    ): { k: number[]; d: number[] } {
         const stochastic = {
-            k: [],
-            d: []
+            k: [] as number[],
+            d: [] as number[]
         };
         
         for (let i = kPeriod - 1; i < close.length; i++) {
@@ -143,9 +156,8 @@ class TechnicalIndicators {
         return stochastic;
     }
     
-    // 平均真实波幅 (ATR)
-    calculateATR(high, low, close, period = 14) {
-        const trueRanges = [];
+    public calculateATR(high: number[], low: number[], close: number[], period: number = 14): number[] {
+        const trueRanges: number[] = [];
         
         for (let i = 1; i < high.length; i++) {
             const tr1 = high[i] - low[i];
@@ -158,9 +170,13 @@ class TechnicalIndicators {
         return this.calculateSMA(trueRanges, period);
     }
     
-    // 威廉指标 (%R)
-    calculateWilliamsR(high, low, close, period = 14) {
-        const williamsR = [];
+    public calculateWilliamsR(
+        high: number[], 
+        low: number[], 
+        close: number[], 
+        period: number = 14
+    ): number[] {
+        const williamsR: number[] = [];
         
         for (let i = period - 1; i < close.length; i++) {
             const highestHigh = Math.max(...high.slice(i - period + 1, i + 1));
@@ -173,15 +189,14 @@ class TechnicalIndicators {
         return williamsR;
     }
     
-    // 商品通道指数 (CCI)
-    calculateCCI(high, low, close, period = 20) {
-        const typicalPrices = [];
+    public calculateCCI(high: number[], low: number[], close: number[], period: number = 20): number[] {
+        const typicalPrices: number[] = [];
         for (let i = 0; i < high.length; i++) {
             typicalPrices.push((high[i] + low[i] + close[i]) / 3);
         }
         
         const sma = this.calculateSMA(typicalPrices, period);
-        const cci = [];
+        const cci: number[] = [];
         
         for (let i = period - 1; i < typicalPrices.length; i++) {
             const slice = typicalPrices.slice(i - period + 1, i + 1);
@@ -194,11 +209,13 @@ class TechnicalIndicators {
         return cci;
     }
     
-    // 支撑和阻力位检测
-    detectSupportResistance(data, lookback = 20) {
+    public detectSupportResistance(
+        data: number[], 
+        lookback: number = 20
+    ): { support: SupportResistanceLevel[]; resistance: SupportResistanceLevel[] } {
         const levels = {
-            support: [],
-            resistance: []
+            support: [] as SupportResistanceLevel[],
+            resistance: [] as SupportResistanceLevel[]
         };
         
         for (let i = lookback; i < data.length - lookback; i++) {
@@ -206,11 +223,9 @@ class TechnicalIndicators {
             const leftPrices = data.slice(i - lookback, i);
             const rightPrices = data.slice(i + 1, i + lookback + 1);
             
-            // 检测阻力位（局部高点）
             const isResistance = leftPrices.every(price => price <= currentPrice) &&
                                rightPrices.every(price => price <= currentPrice);
             
-            // 检测支撑位（局部低点）
             const isSupport = leftPrices.every(price => price >= currentPrice) &&
                              rightPrices.every(price => price >= currentPrice);
             
@@ -234,15 +249,13 @@ class TechnicalIndicators {
         return levels;
     }
     
-    // 计算所有指标
-    async calculateAll(ohlcv) {
+    public async calculateAll(ohlcv: OHLCVArray[]): Promise<ITechnicalIndicators> {
         try {
-            const closes = ohlcv.map(candle => candle[4]); // 收盘价
-            const highs = ohlcv.map(candle => candle[2]);   // 最高价
-            const lows = ohlcv.map(candle => candle[3]);    // 最低价
-            const volumes = ohlcv.map(candle => candle[5]); // 成交量
+            const closes = ohlcv.map(candle => candle[4]);
+            const highs = ohlcv.map(candle => candle[2]);
+            const lows = ohlcv.map(candle => candle[3]);
             
-            const indicators = {
+            const indicators: ITechnicalIndicators = {
                 sma: {
                     sma20: this.calculateSMA(closes, 20),
                     sma50: this.calculateSMA(closes, 50)
@@ -259,22 +272,21 @@ class TechnicalIndicators {
                 williamsR: this.calculateWilliamsR(highs, lows, closes),
                 cci: this.calculateCCI(highs, lows, closes),
                 supportResistance: this.detectSupportResistance(closes),
+                signals: this.generateTradingSignals({} as ITechnicalIndicators, closes),
                 timestamp: new Date().toISOString()
             };
             
-            // 添加交易信号
             indicators.signals = this.generateTradingSignals(indicators, closes);
             
             return indicators;
             
         } catch (error) {
-            throw new Error(`Error calculating indicators: ${error.message}`);
+            throw new IndicatorError(`Error calculating indicators: ${(error as Error).message}`);
         }
     }
     
-    // 生成交易信号
-    generateTradingSignals(indicators, closes) {
-        const signals = {
+    public generateTradingSignals(indicators: ITechnicalIndicators, closes: number[]): TradingSignals {
+        const signals: TradingSignals = {
             overall: 'NEUTRAL',
             strength: 0,
             signals: []
@@ -283,21 +295,20 @@ class TechnicalIndicators {
         let bullishSignals = 0;
         let bearishSignals = 0;
         
-        // RSI信号
-        const lastRSI = indicators.rsi[indicators.rsi.length - 1];
-        if (lastRSI < 30) {
-            signals.signals.push({ type: 'RSI', signal: 'BUY', reason: 'RSI超卖' });
-            bullishSignals++;
-        } else if (lastRSI > 70) {
-            signals.signals.push({ type: 'RSI', signal: 'SELL', reason: 'RSI超买' });
-            bearishSignals++;
+        if (indicators.rsi && indicators.rsi.length > 0) {
+            const lastRSI = indicators.rsi[indicators.rsi.length - 1];
+            if (lastRSI < 30) {
+                signals.signals.push({ type: 'RSI', signal: 'BUY', reason: 'RSI超卖' });
+                bullishSignals++;
+            } else if (lastRSI > 70) {
+                signals.signals.push({ type: 'RSI', signal: 'SELL', reason: 'RSI超买' });
+                bearishSignals++;
+            }
         }
         
-        // MACD信号
-        const macd = indicators.macd;
-        if (macd.histogram.length >= 2) {
-            const currentHist = macd.histogram[macd.histogram.length - 1];
-            const prevHist = macd.histogram[macd.histogram.length - 2];
+        if (indicators.macd && indicators.macd.histogram.length >= 2) {
+            const currentHist = indicators.macd.histogram[indicators.macd.histogram.length - 1];
+            const prevHist = indicators.macd.histogram[indicators.macd.histogram.length - 2];
             
             if (currentHist > 0 && prevHist <= 0) {
                 signals.signals.push({ type: 'MACD', signal: 'BUY', reason: 'MACD金叉' });
@@ -308,12 +319,10 @@ class TechnicalIndicators {
             }
         }
         
-        // 布林带信号
-        const bollinger = indicators.bollinger;
-        if (bollinger.upper.length > 0) {
+        if (indicators.bollinger && indicators.bollinger.upper.length > 0) {
             const lastPrice = closes[closes.length - 1];
-            const lastUpper = bollinger.upper[bollinger.upper.length - 1];
-            const lastLower = bollinger.lower[bollinger.lower.length - 1];
+            const lastUpper = indicators.bollinger.upper[indicators.bollinger.upper.length - 1];
+            const lastLower = indicators.bollinger.lower[indicators.bollinger.lower.length - 1];
             
             if (lastPrice <= lastLower) {
                 signals.signals.push({ type: 'Bollinger', signal: 'BUY', reason: '价格触及下轨' });
@@ -324,11 +333,10 @@ class TechnicalIndicators {
             }
         }
         
-        // 计算综合信号
         const totalSignals = bullishSignals + bearishSignals;
         if (totalSignals > 0) {
             const bullishRatio = bullishSignals / totalSignals;
-            signals.strength = Math.abs(bullishRatio - 0.5) * 2; // 0-1之间
+            signals.strength = Math.abs(bullishRatio - 0.5) * 2;
             
             if (bullishRatio > 0.6) {
                 signals.overall = 'BULLISH';
@@ -341,4 +349,4 @@ class TechnicalIndicators {
     }
 }
 
-module.exports = TechnicalIndicators;
+export default TechnicalIndicators;
