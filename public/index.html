@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>加密货币交易分析系统 - 演示</title>
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1, h2 {
+            color: #333;
+            text-align: center;
+        }
+        .status {
+            display: inline-block;
+            padding: 5px 15px;
+            border-radius: 20px;
+            color: white;
+            font-weight: bold;
+            margin: 5px;
+        }
+        .status.connected { background-color: #4CAF50; }
+        .status.disconnected { background-color: #f44336; }
+        .price-card {
+            display: inline-block;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            margin: 10px;
+            border-radius: 10px;
+            min-width: 200px;
+            text-align: center;
+        }
+        .price-symbol {
+            font-size: 18px;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+        .price-value {
+            font-size: 24px;
+            margin-bottom: 10px;
+        }
+        .price-change {
+            font-size: 14px;
+        }
+        .signal-card {
+            background: white;
+            border: 2px solid #ddd;
+            border-radius: 10px;
+            padding: 15px;
+            margin: 10px 0;
+        }
+        .signal-bullish {
+            border-color: #4CAF50;
+            background-color: #f8fff8;
+        }
+        .signal-bearish {
+            border-color: #f44336;
+            background-color: #fff8f8;
+        }
+        .signal-neutral {
+            border-color: #ff9800;
+            background-color: #fffaf0;
+        }
+        .arbitrage-card {
+            background: linear-gradient(135deg, #ffeaa7 0%, #fab1a0 100%);
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 10px;
+        }
+        .log-area {
+            background: #2c3e50;
+            color: #ecf0f1;
+            padding: 15px;
+            border-radius: 5px;
+            height: 300px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+        }
+        .controls {
+            text-align: center;
+            margin: 20px 0;
+        }
+        button {
+            background: #3498db;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background: #2980b9;
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+        }
+        .timestamp {
+            color: #7f8c8d;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚀 加密货币交易分析系统</h1>
+        <div style="text-align: center;">
+            <span id="connectionStatus" class="status disconnected">未连接</span>
+            <span class="timestamp" id="lastUpdate">最后更新: --</span>
+        </div>
+        
+        <div class="controls">
+            <button onclick="connectSocket()">连接服务器</button>
+            <button onclick="disconnectSocket()">断开连接</button>
+            <button onclick="subscribeSymbols()">订阅价格</button>
+            <button onclick="clearLogs()">清空日志</button>
+        </div>
+    </div>
+
+    <div class="grid">
+        <div class="container">
+            <h2>💰 实时价格</h2>
+            <div id="pricesContainer">
+                <p>等待价格数据...</p>
+            </div>
+        </div>
+
+        <div class="container">
+            <h2>📊 交易信号</h2>
+            <div id="signalsContainer">
+                <p>等待信号数据...</p>
+            </div>
+        </div>
+
+        <div class="container">
+            <h2>🔄 套利机会</h2>
+            <div id="arbitrageContainer">
+                <p>等待套利数据...</p>
+            </div>
+        </div>
+
+        <div class="container">
+            <h2>📈 技术指标</h2>
+            <div id="indicatorsContainer">
+                <p>等待指标数据...</p>
+            </div>
+        </div>
+    </div>
+
+    <div class="container">
+        <h2>📝 实时日志</h2>
+        <div id="logArea" class="log-area"></div>
+    </div>
+
+    <script>
+        let socket = null;
+        let isConnected = false;
+
+        // 监控的交易对
+        const watchedSymbols = ['BTC/USDT', 'ETH/USDT', 'BNB/USDT'];
+
+        function addLog(message) {
+            const logArea = document.getElementById('logArea');
+            const timestamp = new Date().toLocaleTimeString();
+            logArea.innerHTML += `[${timestamp}] ${message}\n`;
+            logArea.scrollTop = logArea.scrollHeight;
+        }
+
+        function updateConnectionStatus(connected) {
+            isConnected = connected;
+            const status = document.getElementById('connectionStatus');
+            status.className = `status ${connected ? 'connected' : 'disconnected'}`;
+            status.textContent = connected ? '已连接' : '未连接';
+            
+            if (connected) {
+                addLog('✅ 已连接到服务器');
+            } else {
+                addLog('❌ 与服务器断开连接');
+            }
+        }
+
+        function connectSocket() {
+            if (socket && isConnected) {
+                addLog('⚠️ 已经连接到服务器');
+                return;
+            }
+
+            try {
+                socket = io('http://localhost:3000');
+                
+                socket.on('connect', () => {
+                    updateConnectionStatus(true);
+                    subscribeSymbols();
+                });
+
+                socket.on('disconnect', () => {
+                    updateConnectionStatus(false);
+                });
+
+                socket.on('price_update', (data) => {
+                    addLog(`💰 价格更新: ${Object.keys(data.prices).length} 个交易对`);
+                    updatePricesDisplay(data.prices);
+                    updateLastUpdateTime();
+                });
+
+                socket.on('indicators_update', (data) => {
+                    addLog(`📊 指标更新: ${data.symbol}`);
+                    updateIndicatorsDisplay(data.symbol, data.indicators);
+                });
+
+                socket.on('arbitrage_opportunities', (data) => {
+                    addLog(`🔄 发现 ${data.opportunities.length} 个套利机会`);
+                    updateArbitrageDisplay(data.opportunities);
+                });
+
+                socket.on('price_alert', (data) => {
+                    addLog(`⚠️ 价格预警: ${data.symbol} ${data.type} ${data.targetPrice}`);
+                });
+
+                socket.on('price_anomaly', (data) => {
+                    addLog(`🚨 异常检测: ${data.symbol} 出现 ${data.type} (Z-score: ${data.zScore})`);
+                });
+
+                addLog('🔄 正在连接服务器...');
+            } catch (error) {
+                addLog(`❌ 连接失败: ${error.message}`);
+            }
+        }
+
+        function disconnectSocket() {
+            if (socket) {
+                socket.disconnect();
+                socket = null;
+                updateConnectionStatus(false);
+            }
+        }
+
+        function subscribeSymbols() {
+            if (socket && isConnected) {
+                socket.emit('subscribe', { symbols: watchedSymbols });
+                addLog(`📺 订阅交易对: ${watchedSymbols.join(', ')}`);
+            }
+        }
+
+        function clearLogs() {
+            document.getElementById('logArea').innerHTML = '';
+        }
+
+        function updateLastUpdateTime() {
+            document.getElementById('lastUpdate').textContent = 
+                `最后更新: ${new Date().toLocaleTimeString()}`;
+        }
+
+        function updatePricesDisplay(prices) {
+            const container = document.getElementById('pricesContainer');
+            container.innerHTML = '';
+
+            Object.entries(prices).forEach(([symbol, exchangePrices]) => {
+                if (!exchangePrices) return;
+
+                const binancePrice = exchangePrices.binance;
+                if (binancePrice) {
+                    const priceCard = document.createElement('div');
+                    priceCard.className = 'price-card';
+                    
+                    const changePercent = binancePrice.percentage || 0;
+                    const changeColor = changePercent >= 0 ? '#4CAF50' : '#f44336';
+                    
+                    priceCard.innerHTML = `
+                        <div class="price-symbol">${symbol}</div>
+                        <div class="price-value">$${Number(binancePrice.price).toLocaleString()}</div>
+                        <div class="price-change" style="color: ${changeColor}">
+                            ${changePercent >= 0 ? '+' : ''}${changePercent.toFixed(2)}%
+                        </div>
+                    `;
+                    
+                    container.appendChild(priceCard);
+                }
+            });
+        }
+
+        function updateIndicatorsDisplay(symbol, indicators) {
+            const container = document.getElementById('indicatorsContainer');
+            
+            // 创建或更新指标显示
+            let indicatorCard = document.getElementById(`indicator-${symbol}`);
+            if (!indicatorCard) {
+                indicatorCard = document.createElement('div');
+                indicatorCard.id = `indicator-${symbol}`;
+                indicatorCard.className = 'signal-card';
+                container.appendChild(indicatorCard);
+            }
+
+            const rsi = indicators.rsi ? indicators.rsi[indicators.rsi.length - 1] : null;
+            const macd = indicators.macd ? indicators.macd.histogram[indicators.macd.histogram.length - 1] : null;
+
+            indicatorCard.innerHTML = `
+                <h3>${symbol} 技术指标</h3>
+                <p><strong>RSI (14):</strong> ${rsi ? rsi.toFixed(2) : 'N/A'}</p>
+                <p><strong>MACD柱状图:</strong> ${macd ? macd.toFixed(6) : 'N/A'}</p>
+                <p><strong>信号:</strong> ${indicators.signals.overall}</p>
+                <p><strong>强度:</strong> ${(indicators.signals.strength * 100).toFixed(1)}%</p>
+            `;
+        }
+
+        function updateSignalsDisplay(signals) {
+            const container = document.getElementById('signalsContainer');
+            container.innerHTML = '';
+
+            signals.forEach(signal => {
+                const signalCard = document.createElement('div');
+                signalCard.className = `signal-card signal-${signal.overall.toLowerCase()}`;
+                
+                signalCard.innerHTML = `
+                    <h3>${signal.symbol}</h3>
+                    <p><strong>信号:</strong> ${signal.overall}</p>
+                    <p><strong>强度:</strong> ${(signal.strength * 100).toFixed(1)}%</p>
+                    <p><strong>建议:</strong> ${signal.action || '观望'}</p>
+                `;
+                
+                container.appendChild(signalCard);
+            });
+        }
+
+        function updateArbitrageDisplay(opportunities) {
+            const container = document.getElementById('arbitrageContainer');
+            container.innerHTML = '';
+
+            if (opportunities.length === 0) {
+                container.innerHTML = '<p>暂无套利机会</p>';
+                return;
+            }
+
+            opportunities.slice(0, 5).forEach(opp => {
+                const arbCard = document.createElement('div');
+                arbCard.className = 'arbitrage-card';
+                
+                arbCard.innerHTML = `
+                    <h4>${opp.symbol}</h4>
+                    <p><strong>买入:</strong> ${opp.buyExchange} @ $${Number(opp.buyPrice).toLocaleString()}</p>
+                    <p><strong>卖出:</strong> ${opp.sellExchange} @ $${Number(opp.sellPrice).toLocaleString()}</p>
+                    <p><strong>价差:</strong> ${opp.percentage}%</p>
+                `;
+                
+                container.appendChild(arbCard);
+            });
+        }
+
+        // 页面加载完成后自动连接
+        window.onload = function() {
+            addLog('🌐 页面已加载，准备连接服务器');
+            // 延迟1秒后自动连接，确保服务器已启动
+            setTimeout(connectSocket, 1000);
+        };
+
+        // 页面关闭前断开连接
+        window.onbeforeunload = function() {
+            if (socket) {
+                socket.disconnect();
+            }
+        };
+    </script>
+</body>
+</html>
