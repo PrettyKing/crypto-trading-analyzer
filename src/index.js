@@ -5,7 +5,7 @@ const cron = require('node-cron');
 require('dotenv').config();
 
 const logger = require('./utils/logger');
-const { initDatabase } = require('./database');
+const { initDatabase } = require('./database/index');
 const ExchangeManager = require('./exchanges/ExchangeManager');
 const TechnicalIndicators = require('./indicators/TechnicalIndicators');
 const PriceMonitor = require('./monitors/PriceMonitor');
