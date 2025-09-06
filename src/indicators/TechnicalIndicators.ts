@@ -1,4 +1,3 @@
-// import _ from 'lodash'; // Unused
 import {
     TechnicalIndicators as ITechnicalIndicators,
     TradingSignals,

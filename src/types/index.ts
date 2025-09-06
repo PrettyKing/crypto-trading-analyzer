@@ -285,6 +285,8 @@ export interface ApiResponse<T = any> {
   success: boolean;
   data?: T;
   error?: string;
+  details?: any; // For validation errors and additional error information
+  retryAfter?: number; // For rate limiting
 }
 
 export interface ExchangeInfo {
